@@ -127,7 +127,7 @@ public class BlockymodelService {
 
             Path p = getBlockymodelPathForPack(base.pack());
             if (p == null) return false;
-            p = p.resolve("Blocks");
+            p = p.resolve("VFX/Merged");
             if (!Files.exists(p)) {
                 Files.createDirectories(p);
             }

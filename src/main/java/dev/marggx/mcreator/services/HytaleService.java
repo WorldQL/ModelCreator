@@ -157,7 +157,7 @@ public class HytaleService {
 
     public String createValidItemName(String name) {
         if (Character.isDigit(name.charAt(0))) {
-            return "Item_" + name;
+            return "Merged_" + name;
         }
 
         if (Character.isUpperCase(name.charAt(0))) {

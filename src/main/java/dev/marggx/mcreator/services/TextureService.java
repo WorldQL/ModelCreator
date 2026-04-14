@@ -100,7 +100,7 @@ public class TextureService {
         try {
             Path outputPath = getTexturePathForPack(model.pack());
             if (outputPath == null) return false;
-            outputPath = outputPath.resolve("Blocks");
+            outputPath = outputPath.resolve("VFX/Merged");
             if (!Files.exists(outputPath)) {
                 Files.createDirectories(outputPath);
             }
