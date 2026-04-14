@@ -1,0 +1,20 @@
+{
+  "Group": "Marggx",
+  "Name": "ModelCreator",
+  "Description": "A Plugin that allows you to create Blockymodels directly from in-game entities.",
+  "Authors": [
+    {
+      "Name": "Marggx",
+      "Email": "hytale@marggx.dev",
+      "Url": "marggx.dev"
+    }
+  ],
+  "Website": "marggx.dev",
+  "ServerVersion": "*",
+  "Dependencies": {
+    "Hytale:AssetModule": "*"
+  },
+  "OptionalDependencies": {},
+  "DisabledByDefault": false,
+  "Main": "dev.marggx.mcreator.ModelCreatorPlugin"
+}
