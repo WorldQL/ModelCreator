@@ -23,13 +23,17 @@ import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import static dev.marggx.mcreator.data.blockymodel.BlockymodelQuaternion.rotateYVector3d;
+
 public class MapperService {
     private static final MapperService INSTANCE = new MapperService();
     private static final Logger LOGGER = Logger.get();
+    private static final int NODE_LIMIT = 255;
     public static MapperService get() {
         return INSTANCE;
     }
@@ -54,13 +58,41 @@ public class MapperService {
     }
 
     public boolean createBlockymodelFromBlockSelection(List<Model> blockymodels, BlockSelection selection, String pack, String name, boolean createNewItem) {
-        BaseModel base = new BaseModel(600, selection, null, null, null, null);
-        BaseModel model = createBlockymodel(blockymodels, base);
+        BaseModel fullBase = new BaseModel(600, selection, null, null, null, null);
+        BaseModel fullModel = createBlockymodel(blockymodels, fullBase);
 
-        model.setName(name);
-        model.setPack(pack);
-        boolean created = createNewModel(model);
-        return created;
+        fullModel.setName(name + "_Full");
+        fullModel.setPack(pack);
+        if (!fullModel.validate()) return false;
+        if (!blockymodelService.saveBlockymodelBase(fullModel)) return false;
+        if (!textureService.saveTexture(fullModel)) return false;
+
+        List<List<Model>> chunks = new ArrayList<>();
+        List<Model> current = new ArrayList<>();
+        int currentCount = 0;
+
+        for (Model model : blockymodels) {
+            int nodeCount = countNodesForModel(model);
+            if (!current.isEmpty() && currentCount + nodeCount > NODE_LIMIT) {
+                chunks.add(current);
+                current = new ArrayList<>();
+                currentCount = 0;
+            }
+            current.add(model);
+            currentCount += nodeCount;
+        }
+        if (!current.isEmpty()) chunks.add(current);
+
+        for (int i = 0; i < chunks.size(); i++) {
+            String chunkName = chunks.size() == 1 ? name : name + "_" + (i + 1);
+            BaseModel chunkBase = new BaseModel(600, selection, chunkName, pack, null, null);
+            BaseModel chunkModel = createBlockymodel(chunks.get(i), chunkBase);
+            chunkModel.setName(chunkName);
+            chunkModel.setPack(pack);
+            if (!createNewModel(chunkModel)) return false;
+        }
+
+        return true;
     }
 
     private boolean createNewModel(BaseModel model) {
@@ -83,26 +115,19 @@ public class MapperService {
             }
 
             String name = model.name();
-            double[] hitbox = calculateHitbox(model);
-            double halfX = hitbox[0];
-            double halfZ = hitbox[1];
-            double height = hitbox[2];
 
             String json = """
                 {
                   "Model": "VFX/Merged/%s.blockymodel",
                   "Texture": "VFX/Merged/%s.png",
-                  "EyeHeight": %s,
+                  "EyeHeight": 0.5,
                   "HitBox": {
-                    "Max": { "X": %s, "Y": %s, "Z": %s },
-                    "Min": { "X": %s, "Y": 0, "Z": %s }
+                    "Max": { "X": 0.5, "Y": 1, "Z": 0.5 },
+                    "Min": { "X": -0.5, "Y": 0, "Z": -0.5 }
                   },
                   "MinScale": 0.5,
                   "MaxScale": 4
-                }""".formatted(name, name,
-                    height / 2,
-                    halfX, height, halfZ,
-                    -halfX, -halfZ);
+                }""".formatted(name, name);
 
             try {
                 Files.writeString(outputDir.resolve(name + ".json"), json);
@@ -115,50 +140,6 @@ public class MapperService {
 
         LOGGER.severe("No pack found with name '%s'", model.pack());
         return false;
-    }
-
-    // Returns { halfX, halfZ, height } in Hytale units
-    private double[] calculateHitbox(BaseModel model) {
-        double[] bounds = { Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE,
-                           -Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE };
-
-        for (Blockymodel bm : model.blockymodels()) {
-            collectBounds(bm, 0, 0, 0, bounds);
-        }
-
-        double sizeX = (bounds[3] - bounds[0]) / 32.0;
-        double sizeZ = (bounds[5] - bounds[2]) / 32.0;
-        double height = (bounds[4] - bounds[1]) / 32.0;
-
-        return new double[] { sizeX / 2, sizeZ / 2, height };
-    }
-
-    private void collectBounds(Blockymodel node, double px, double py, double pz, double[] bounds) {
-        double nx = px + (node.position != null ? node.position.getX() : 0);
-        double ny = py + (node.position != null ? node.position.getY() : 0);
-        double nz = pz + (node.position != null ? node.position.getZ() : 0);
-
-        if (node.shape != null && node.shape.offset != null && node.shape.stretch != null) {
-            double ox = nx + node.shape.offset.getX();
-            double oy = ny + node.shape.offset.getY();
-            double oz = nz + node.shape.offset.getZ();
-            double sx = ox + node.shape.stretch.getX();
-            double sy = oy + node.shape.stretch.getY();
-            double sz = oz + node.shape.stretch.getZ();
-
-            bounds[0] = Math.min(bounds[0], Math.min(ox, sx));
-            bounds[1] = Math.min(bounds[1], Math.min(oy, sy));
-            bounds[2] = Math.min(bounds[2], Math.min(oz, sz));
-            bounds[3] = Math.max(bounds[3], Math.max(ox, sx));
-            bounds[4] = Math.max(bounds[4], Math.max(oy, sy));
-            bounds[5] = Math.max(bounds[5], Math.max(oz, sz));
-        }
-
-        if (node.children != null) {
-            for (Blockymodel child : node.children) {
-                collectBounds(child, nx, ny, nz, bounds);
-            }
-        }
     }
 
     private BaseModel createBlockymodel(List<Model> models, BaseModel base) {
@@ -274,6 +255,16 @@ public class MapperService {
         rotation.assign(headRotation.getRotation());
 
         return rotation;
+    }
+
+    private int countNodesForModel(Model model) {
+        BlockymodelBase base = blockymodelService.loadBlockymodelBase(model.path());
+        if (base == null || base.getNodes() == null) return 0;
+        int count = 0;
+        for (Blockymodel node : base.getNodes()) {
+            count += BlockymodelService.get().countNodes(node);
+        }
+        return count;
     }
 
     private boolean hasTransformRotation(Model model, HeadRotation headRotation, TransformComponent transform) {

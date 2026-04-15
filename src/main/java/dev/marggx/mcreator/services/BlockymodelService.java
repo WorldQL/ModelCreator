@@ -3,6 +3,7 @@ package dev.marggx.mcreator.services;
 import com.hypixel.hytale.assetstore.AssetPack;
 import com.hypixel.hytale.codec.ExtraInfo;
 import com.hypixel.hytale.component.Holder;
+import com.hypixel.hytale.math.vector.Vector3d;
 import com.hypixel.hytale.server.core.asset.AssetModule;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockType;
 import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockTypeTextures;
@@ -15,18 +16,20 @@ import com.hypixel.hytale.server.core.modules.entity.component.ModelComponent;
 import com.hypixel.hytale.server.core.modules.entity.item.ItemComponent;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.server.core.util.BsonUtil;
-import dev.marggx.mcreator.data.blockymodel.Blockymodel;
-import dev.marggx.mcreator.data.blockymodel.BlockymodelBase;
-import dev.marggx.mcreator.data.blockymodel.BlockymodelQuaternion;
+import dev.marggx.mcreator.data.blockymodel.*;
 import dev.marggx.mcreator.data.extras.BaseModel;
 import dev.marggx.mcreator.data.extras.Model;
 import dev.marggx.mcreator.utils.Logger;
 import org.bson.BsonDocument;
+import org.joml.Quaterniond;
 
 import javax.annotation.Nonnull;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
+
+import static dev.marggx.mcreator.data.blockymodel.BlockymodelQuaternion.rotateYVector3d;
 
 public class BlockymodelService {
 
@@ -113,7 +116,24 @@ public class BlockymodelService {
         List<Blockymodel> blockymodels = model.blockymodels();
         if (blockymodels.isEmpty()) return null;
 
-        return new BlockymodelBase(null, blockymodels.toArray(Blockymodel[]::new));
+        var children = blockymodels.toArray(new Blockymodel[0]);
+        Blockymodel rootModel = new Blockymodel(
+                "599",
+                "Root",
+                new BlockymodelVector3d(0, 0, 0),
+                BlockymodelQuaternion.fromVector3d(new Vector3d(0, Math.PI / 2, 0)),
+                new BlockymodelShape(
+                        new BlockymodelVector3d(),
+                        new BlockymodelVector3d(),
+                        new HashMap<>(),
+                        BlockymodelShapeType.None,
+                        new BlockymodelShapeSettings()
+                ),
+                children
+        );
+        scaleBlockymodel(rootModel, 2.0);
+
+        return new BlockymodelBase(null, new Blockymodel[]{rootModel});
     }
 
     public boolean saveBlockymodelBase(BaseModel base) {
@@ -277,29 +297,45 @@ public class BlockymodelService {
         }
     }
 
+    private void rotateBlockymodel(Blockymodel model, double rads) {
+        if (model.position != null) {
+            rotateYVector3d(model.position, rads);
+        }
+
+        if (model.orientation != null) {
+            var quat = new Quaterniond(model.orientation.x, model.orientation.y, model.orientation.z, model.orientation.w);
+            quat.rotateLocalY(rads);
+            model.orientation.x = quat.x;
+            model.orientation.y = quat.y;
+            model.orientation.z = quat.z;
+            model.orientation.w = quat.w;
+        }
+
+        if (model.children == null) return;
+        for (Blockymodel child : model.children) rotateBlockymodel(child, rads);
+    }
+
     public int countNodes(BlockymodelBase base) {
-        int counter = 0;
+        int counter = 1;
         Blockymodel[] nodes = base.getNodes();
 
         if (nodes == null || nodes.length == 0) return 0;
 
         for (Blockymodel node : nodes) {
             counter += countNodes(node);
-            counter++;
         }
 
         return counter;
     }
 
-    private int countNodes(Blockymodel blockyNode) {
-        int counter = 0;
+    public int countNodes(Blockymodel blockyNode) {
+        int counter = 1;
         Blockymodel[] nodes = blockyNode.children;
 
-        if (nodes == null || nodes.length == 0) return counter;
+        if (nodes == null) return counter;
 
         for (Blockymodel node : nodes) {
             counter += countNodes(node);
-            counter++;
         }
         return counter;
     }
