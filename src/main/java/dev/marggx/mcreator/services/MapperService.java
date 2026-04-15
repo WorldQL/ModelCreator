@@ -57,17 +57,8 @@ public class MapperService {
         model.setName(name);
         model.setPack(pack);
         boolean created = createNewModel(model);
-        if (!created) return false;
-
-        if (!createNewItem) return true;
-        HytaleServer.SCHEDULED_EXECUTOR.schedule(() -> {
-            try {
-                hytaleService.createNewItem(base);
-            } catch (IOException e) {
-                LOGGER.severe("Failed to create new item for blockymodel: " + model.name(), e);
-            }
-        }, 3L, TimeUnit.SECONDS);
-        return true;
+        // TODO: write a ModelAsset to the pack as well
+        return created;
     }
 
     private boolean createNewModel(BaseModel model) {
@@ -214,9 +205,9 @@ public class MapperService {
         double addZ = 32.0;
         if (base.selection() != null) {
             int subX = base.selection().getSelectionMax().getX() - base.selection().getSelectionMin().getX();
-            addX *= (subX != 0 ? 1 + subX : 1);
+            addX *= 1 + subX;
             int subZ = base.selection().getSelectionMax().getZ() - base.selection().getSelectionMin().getZ();
-            addZ *= (subZ != 0 ? 1 + subZ : 1);
+            addZ *= 1 + subZ;
         }
 
         position.add(addX, 16.0, addZ);
