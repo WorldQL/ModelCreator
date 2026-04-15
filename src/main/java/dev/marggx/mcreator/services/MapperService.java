@@ -1,10 +1,12 @@
 package dev.marggx.mcreator.services;
 
+import com.hypixel.hytale.assetstore.AssetPack;
 import com.hypixel.hytale.component.Holder;
 import com.hypixel.hytale.math.util.MathUtil;
 import com.hypixel.hytale.math.vector.Vector3d;
 import com.hypixel.hytale.math.vector.Vector3f;
 import com.hypixel.hytale.server.core.HytaleServer;
+import com.hypixel.hytale.server.core.asset.AssetModule;
 import com.hypixel.hytale.server.core.modules.entity.component.EntityScaleComponent;
 import com.hypixel.hytale.server.core.modules.entity.component.HeadRotation;
 import com.hypixel.hytale.server.core.modules.entity.component.ModelComponent;
@@ -19,6 +21,7 @@ import dev.marggx.mcreator.utils.Logger;
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
@@ -57,7 +60,6 @@ public class MapperService {
         model.setName(name);
         model.setPack(pack);
         boolean created = createNewModel(model);
-        // TODO: write a ModelAsset to the pack as well
         return created;
     }
 
@@ -65,7 +67,98 @@ public class MapperService {
         boolean valid = model.validate();
         if (!valid) return false;
 
-        return blockymodelService.saveBlockymodelBase(model) && textureService.saveTexture(model);
+        return blockymodelService.saveBlockymodelBase(model) && textureService.saveTexture(model) && saveModelAsset(model);
+    }
+
+    private boolean saveModelAsset(BaseModel model) {
+        for (AssetPack pack : AssetModule.get().getAssetPacks()) {
+            if (!pack.getName().equals(model.pack())) continue;
+
+            Path outputDir = pack.getRoot().resolve("Server/Models/Merged");
+            try {
+                Files.createDirectories(outputDir);
+            } catch (IOException e) {
+                LOGGER.severe("Failed to create Server/Models directory for pack '%s'", model.pack());
+                return false;
+            }
+
+            String name = model.name();
+            double[] hitbox = calculateHitbox(model);
+            double halfX = hitbox[0];
+            double halfZ = hitbox[1];
+            double height = hitbox[2];
+
+            String json = """
+                {
+                  "Model": "VFX/Merged/%s.blockymodel",
+                  "Texture": "VFX/Merged/%s.png",
+                  "EyeHeight": %s,
+                  "HitBox": {
+                    "Max": { "X": %s, "Y": %s, "Z": %s },
+                    "Min": { "X": %s, "Y": 0, "Z": %s }
+                  },
+                  "MinScale": 0.5,
+                  "MaxScale": 4
+                }""".formatted(name, name,
+                    height / 2,
+                    halfX, height, halfZ,
+                    -halfX, -halfZ);
+
+            try {
+                Files.writeString(outputDir.resolve(name + ".json"), json);
+            } catch (IOException e) {
+                LOGGER.severe("Failed to write ModelAsset for '%s'", name);
+                return false;
+            }
+            return true;
+        }
+
+        LOGGER.severe("No pack found with name '%s'", model.pack());
+        return false;
+    }
+
+    // Returns { halfX, halfZ, height } in Hytale units
+    private double[] calculateHitbox(BaseModel model) {
+        double[] bounds = { Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE,
+                           -Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE };
+
+        for (Blockymodel bm : model.blockymodels()) {
+            collectBounds(bm, 0, 0, 0, bounds);
+        }
+
+        double sizeX = (bounds[3] - bounds[0]) / 32.0;
+        double sizeZ = (bounds[5] - bounds[2]) / 32.0;
+        double height = (bounds[4] - bounds[1]) / 32.0;
+
+        return new double[] { sizeX / 2, sizeZ / 2, height };
+    }
+
+    private void collectBounds(Blockymodel node, double px, double py, double pz, double[] bounds) {
+        double nx = px + (node.position != null ? node.position.getX() : 0);
+        double ny = py + (node.position != null ? node.position.getY() : 0);
+        double nz = pz + (node.position != null ? node.position.getZ() : 0);
+
+        if (node.shape != null && node.shape.offset != null && node.shape.stretch != null) {
+            double ox = nx + node.shape.offset.getX();
+            double oy = ny + node.shape.offset.getY();
+            double oz = nz + node.shape.offset.getZ();
+            double sx = ox + node.shape.stretch.getX();
+            double sy = oy + node.shape.stretch.getY();
+            double sz = oz + node.shape.stretch.getZ();
+
+            bounds[0] = Math.min(bounds[0], Math.min(ox, sx));
+            bounds[1] = Math.min(bounds[1], Math.min(oy, sy));
+            bounds[2] = Math.min(bounds[2], Math.min(oz, sz));
+            bounds[3] = Math.max(bounds[3], Math.max(ox, sx));
+            bounds[4] = Math.max(bounds[4], Math.max(oy, sy));
+            bounds[5] = Math.max(bounds[5], Math.max(oz, sz));
+        }
+
+        if (node.children != null) {
+            for (Blockymodel child : node.children) {
+                collectBounds(child, nx, ny, nz, bounds);
+            }
+        }
     }
 
     private BaseModel createBlockymodel(List<Model> models, BaseModel base) {
